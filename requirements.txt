@@ -1,0 +1,12 @@
+flask
+telethon
+cryptg
+pyaes
+aiohttp
+aiodns
+pillow
+hachoir
+requests
+redis
+FastTelethonhelper
+humanreadable
