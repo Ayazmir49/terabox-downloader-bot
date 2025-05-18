@@ -1,13 +1,11 @@
+# terabox.py
+
 import re
 import requests
 from urllib.parse import parse_qs, urlparse
-from tools import get_formatted_size
-
+from tools import get_formatted_size  # Optional if you want to show readable sizes
 
 def check_url_patterns(url):
-    """
-    Validates if a URL matches known TeraBox mirror domains.
-    """
     patterns = [
         r"ww\.mirrobox\.com",
         r"www\.nephobox\.com",
@@ -30,44 +28,22 @@ def check_url_patterns(url):
         r"www\.tibibox\.com",
         r"www\.teraboxapp\.com",
     ]
-
-    for pattern in patterns:
-        if re.search(pattern, url):
-            return True
-    return False
-
+    return any(re.search(pattern, url) for pattern in patterns)
 
 def get_urls_from_string(string: str) -> list[str]:
-    """
-    Extracts valid TeraBox URLs from a given string.
-    """
     pattern = r"(https?://\S+)"
     urls = re.findall(pattern, string)
     urls = [url for url in urls if check_url_patterns(url)]
-    if not urls:
-        return []
-    return urls[0]
-
+    return urls[0] if urls else []
 
 def extract_surl_from_url(url: str) -> str | None:
-    """
-    Extracts the `surl` parameter from a TeraBox URL.
-    """
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
     surl = query_params.get("surl", [])
-    if surl:
-        return surl[0]
-    else:
-        return False
-
+    return surl[0] if surl else False
 
 def get_data(url: str):
-    """
-    Calls the working RapidAPI endpoint to fetch TeraBox file info.
-    """
     try:
-        # Normalize domain to avoid issues
         parsed_url = urlparse(url)
         clean_url = url.replace(parsed_url.netloc, "terabox.com")
 
@@ -92,7 +68,6 @@ def get_data(url: str):
             return False
 
         result = json_data[0]
-
         return {
             "file_name": result.get("file_name"),
             "link": result.get("link"),
