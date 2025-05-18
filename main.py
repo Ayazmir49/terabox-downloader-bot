@@ -7,7 +7,7 @@ import humanreadable as hr
 from telethon.sync import TelegramClient, events
 from telethon.tl.custom.message import Message
 
-from config import ADMINS, API_HASH, API_ID, BOT_TOKEN
+from config import ADMINS, API_HASH, API_ID
 from redis_db import db
 from send_media import VideoSender
 from terabox import get_data
@@ -17,6 +17,7 @@ from keep_alive import keep_alive  # Keeps bot alive on hosting
 # Keep bot alive on Render/Vercel/etc.
 keep_alive()
 
+# Load session from 'main.session' file
 bot = TelegramClient("main", API_ID, API_HASH)
 log = logging.getLogger(__name__)
 
@@ -95,7 +96,8 @@ def start_bot_and_flask():
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
 
-    bot.start(bot_token=BOT_TOKEN)
+    # Use existing session — no bot_token login
+    bot.start()
     bot.run_until_disconnected()
 
 if __name__ == "__main__":
