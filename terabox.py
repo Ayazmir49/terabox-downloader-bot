@@ -1,8 +1,6 @@
 import re
-from urllib.parse import parse_qs, urlparse
-
 import requests
-
+from urllib.parse import parse_qs, urlparse
 from tools import get_formatted_size
 
 
@@ -66,37 +64,44 @@ def extract_surl_from_url(url: str) -> str | None:
 
 def get_data(url: str):
     """
-    Calls the RapidAPI endpoint to fetch TeraBox file info and download URL.
+    Calls the working RapidAPI endpoint to fetch TeraBox file info.
     """
-    api_url = "https://terabox-direct-download.p.rapidapi.com/"
-    headers = {
-        "X-RapidAPI-Key": "e001039e2emshf6e499c6afe75f3p1723fdjsn1c9cc179bde0",  # your API key
-        "X-RapidAPI-Host": "terabox-direct-download.p.rapidapi.com"
-    }
-    params = {"link": url}
-
     try:
-        response = requests.get(api_url, headers=headers, params=params)
+        # Normalize domain to avoid issues
+        parsed_url = urlparse(url)
+        clean_url = url.replace(parsed_url.netloc, "terabox.com")
+
+        headers = {
+            "X-RapidAPI-Key": "e001039e2emshf6e499c6afe75f3p1723fdjsn1c9cc179bde0",  # Replace with your key
+            "X-RapidAPI-Host": "terabox-api1.p.rapidapi.com",
+        }
+
+        response = requests.get(
+            "https://terabox-api1.p.rapidapi.com/api/v1/terabox-downloader",
+            headers=headers,
+            params={"url": clean_url},
+            timeout=15
+        )
+
         if response.status_code != 200:
+            print(f"API error: {response.status_code}")
             return False
 
-        data = response.json()
-    except Exception:
+        json_data = response.json()
+        if not json_data or not isinstance(json_data, list):
+            return False
+
+        result = json_data[0]
+
+        return {
+            "file_name": result.get("file_name"),
+            "link": result.get("link"),
+            "direct_link": result.get("direct_link"),
+            "thumb": result.get("thumb"),
+            "size": result.get("size"),
+            "sizebytes": int(result.get("sizebytes", 0)),
+        }
+
+    except Exception as e:
+        print(f"Error in get_data: {e}")
         return False
-
-    file_url = data.get("url")
-    file_name = data.get("fileName")
-    file_size_bytes = data.get("fileSizeBytes")
-    thumb = data.get("thumb")
-
-    if not file_url or not file_name:
-        return False
-
-    return {
-        "file_name": file_name,
-        "link": file_url,
-        "direct_link": file_url,
-        "thumb": thumb,
-        "size": get_formatted_size(int(file_size_bytes)) if file_size_bytes else None,
-        "sizebytes": int(file_size_bytes) if file_size_bytes else None,
-    }
