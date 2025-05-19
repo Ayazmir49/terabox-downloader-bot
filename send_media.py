@@ -8,8 +8,6 @@ import telethon
 from telethon import Button, TelegramClient, events, utils
 from telethon.events.newmessage import NewMessage
 from telethon.tl.functions.channels import GetMessagesRequest
-from telethon.tl.functions.messages import ForwardMessagesRequest
-from telethon.tl.patched import Message
 from telethon.tl.types import Document
 from telethon.types import UpdateEditMessage
 
@@ -24,7 +22,7 @@ from tools import (
     extract_code_from_url,
     get_formatted_size,
 )
-from terabox import get_data  # added import for metadata extraction
+from terabox import get_data
 
 
 class VideoSender:
@@ -33,7 +31,7 @@ class VideoSender:
         self,
         client: TelegramClient,
         message: NewMessage.Event,
-        edit_message: Message,
+        edit_message: UpdateEditMessage,
         url: str,
         data,
     ):
@@ -52,52 +50,45 @@ class VideoSender:
             self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
         )
         self.caption = f"""
-File Name: `{self.data['file_name']}`
-Size: **{self.data["size"]}**
+🎬 **File Name:** `{self.data['file_name']}`
+📦 **Size:** **{self.data['size']}**
 
-@Teracinee_bot
-            """
+@{BOT_USERNAME}
+        """
         self.caption2 = f"""
-Downloading `{self.data['file_name']}`
-Size: **{self.data["size"]}**
+📥 **Downloading:** `{self.data['file_name']}`
+📦 **Size:** **{self.data['size']}**
 
-@Teracinee_bot
-            """
+@{BOT_USERNAME}
+        """
 
-    async def progress_bar(self, current_downloaded, total_downloaded, state="Sending"):
+    async def progress_bar(self, current, total, state="Sending"):
         if not self.can_send.can_send():
             return
 
-        bar_length = 20
-        percent = current_downloaded / total_downloaded
-        arrow = "█" * int(percent * bar_length)
-        spaces = "░" * (bar_length - len(arrow))
+        percent = current / total if total else 0
+        bar = "█" * int(percent * 20) + "░" * (20 - int(percent * 20))
+        speed = current / (time.time() - self.start_time) if self.start_time else 0
+        remaining = (total - current) / speed if speed else 0
 
-        elapsed_time = time.time() - self.start_time
-
-        head_text = f"{state} `{self.data['file_name']}`"
-        progress_bar = f"[{arrow + spaces}] {percent:.2%}"
-        upload_speed = current_downloaded / elapsed_time if elapsed_time > 0 else 0
-        speed_line = f"Speed: **{get_formatted_size(upload_speed)}/s**"
-
-        time_remaining = (
-            (total_downloaded - current_downloaded) / upload_speed
-            if upload_speed > 0
-            else 0
-        )
-        time_line = f"Time Remaining: `{convert_seconds(time_remaining)}`"
-        size_line = f"Size: **{get_formatted_size(current_downloaded)}** / **{get_formatted_size(total_downloaded)}**"
+        msg = f"""
+🚀 {state} `{self.data['file_name']}`
+[{bar}] {percent:.2%}
+⚡️ Speed: **{get_formatted_size(speed)}/s**
+⏳ Time Remaining: `{convert_seconds(remaining)}`
+📦 Size: **{get_formatted_size(current)}** / **{get_formatted_size(total)}**
+        """
 
         await self.edit_message.edit(
-            f"{head_text}\n{progress_bar}\n{speed_line}\n{time_line}\n{size_line}",
+            msg.strip(),
             parse_mode="markdown",
-            buttons=[Button.inline("Stop", data=f"stop{self.uuid}")],
+            buttons=[Button.inline("🛑 Stop", data=f"stop{self.uuid}")],
         )
 
     async def send_media(self, shorturl):
         try:
             self.thumbnail.seek(0) if self.thumbnail else None
-            spoiler_media = (
+            media_file = (
                 await self.client._file_to_media(
                     self.data["direct_link"],
                     supports_streaming=True,
@@ -105,30 +96,27 @@ Size: **{self.data["size"]}**
                     thumb=self.thumbnail,
                 )
             )[1]
-            spoiler_media.spoiler = True
+            media_file.spoiler = True
+
             file = await self.client.send_file(
                 self.message.chat.id,
-                file=spoiler_media,
+                file=media_file,
                 caption=self.caption,
-                allow_cache=True,
-                force_document=False,
-                parse_mode="markdown",
                 reply_to=self.message.id,
+                parse_mode="markdown",
                 supports_streaming=True,
-                background=True,
                 buttons=[
                     [
-                        Button.url(
-                            "Direct Link",
-                            url=f"https://{BOT_USERNAME}.t.me?start={self.uuid}",
-                        ),
+                        Button.url("📥 Download", url=self.data["direct_link"]),
+                        Button.url("▶️ Watch", url=self.data["link"]),
                     ],
                     [
-                        Button.url("Channel ", url="https://t.me/TeracineeChannel"),
-                        Button.url("Group ", url="https://t.me/+EtHQEItJyzE4YzU0"),
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
                     ],
                 ],
             )
+
             try:
                 if self.edit_message:
                     await self.edit_message.delete()
@@ -136,125 +124,78 @@ Size: **{self.data["size"]}**
                 pass
 
         except telethon.errors.rpcerrorlist.WebpageCurlFailedError:
-            path = Path(self.data["file_name"])
-            if not os.path.exists(path):
-                try:
-                    download_task = asyncio.create_task(
-                        download_file(
-                            self.data["direct_link"],
-                            self.data["file_name"],
-                            self.progress_bar,
-                        )
-                    )
-                    download = await asyncio.gather(download_task)
-                except:
-                    await self.edit_message.edit("Failed to Download the media. trying again.")
-                    try:
-                        download_task = asyncio.create_task(
-                                download_file(
-                                    self.data["link"],
-                                    self.data["file_name"],
-                                    self.progress_bar,
-                                )
-                            )
-                        download = await asyncio.gather(download_task)
-                    except:
-                        return await self.handle_failed_download()
-            else:
-                download = [path]
-            if not download or not download[0] or not os.path.exists(download[0]):
-                return await self.handle_failed_download()
-            self.download = Path(download[0])
-            try:
-                with open(self.download, "rb") as out:
-                    res = await upload_file(
-                        self.client, out, self.progress_bar, self.data["file_name"]
-                    )
-                    attributes, mime_type = utils.get_attributes(
-                        self.download,
-                    )
-                    file = await self.client.send_file(
-                        self.message.chat.id,
-                        file=res,
-                        caption=self.caption,
-                        background=True,
-                        reply_to=self.message.id,
-                        allow_cache=True,
-                        force_document=False,
-                        parse_mode="markdown",
-                        supports_streaming=True,
-                        thumb=self.thumbnail,
-                        # attributes=attributes,
-                        mime_type=mime_type,
-                        buttons=[
-                            [
-                                Button.url(
-                                    "Direct Link",
-                                    url=f"https://{BOT_USERNAME}.t.me?start={self.uuid}",
-                                ),
-                            ],
-                            [
-                                Button.url("Channel ", url="https://t.me/+LsECfdEyaVU4OGY8"),
-                                Button.url(
-                                    "Group ", url="https://t.me/+EtHQEItJyzE4Z0"
-                                ),
-                            ],
-                        ],
-                    )
-                try:
-                    os.unlink(self.download)
-                except Exception:
-                    pass
-                try:
-                    os.unlink(self.data["file_name"])
-                except Exception:
-                    pass
-            except Exception:
-                self.client.remove_event_handler(
-                    self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
-                )
-                try:
-                    os.unlink(self.download)
-                except Exception:
-                    pass
-                try:
-                    os.unlink(self.data["file_name"])
-                except Exception:
-                    pass
-                return await self.handle_failed_download()
+            await self.handle_fallback(shorturl)
+        except Exception:
+            await self.handle_failed_download()
+        else:
+            await self.save_forward_file(file, shorturl)
 
-        await self.save_forward_file(file, shorturl)
+    async def handle_fallback(self, shorturl):
+        path = Path(self.data["file_name"])
+        try:
+            if not path.exists():
+                download = await download_file(
+                    self.data["direct_link"], self.data["file_name"], self.progress_bar
+                )
+            else:
+                download = path
+
+            if not download or not Path(download).exists():
+                raise FileNotFoundError("Downloaded file not found")
+
+            self.download = Path(download)
+            with open(self.download, "rb") as out:
+                uploaded = await upload_file(
+                    self.client, out, self.progress_bar, self.data["file_name"]
+                )
+            file = await self.client.send_file(
+                self.message.chat.id,
+                file=uploaded,
+                caption=self.caption,
+                reply_to=self.message.id,
+                parse_mode="markdown",
+                supports_streaming=True,
+                thumb=self.thumbnail,
+                buttons=[
+                    [
+                        Button.url("📥 Download", url=self.data["direct_link"]),
+                        Button.url("▶️ Watch", url=self.data["link"]),
+                    ],
+                    [
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
+                    ],
+                ],
+            )
+            await self.save_forward_file(file, shorturl)
+        except Exception:
+            await self.handle_failed_download()
 
     async def handle_failed_download(self):
         try:
-            os.unlink(self.data["file_name"])
-        except Exception:
-            pass
-        try:
-            os.unlink(self.download)
-        except Exception:
-            pass
-        try:
             await self.edit_message.edit(
-                f"Sorry! Download Failed but you can download it from [here]({self.data['direct_link']}) or [here]({self.data['link']}).",
+                f"❌ Download Failed. You can try [Download]({self.data['direct_link']}) or [Watch]({self.data['link']}).",
                 parse_mode="markdown",
-                buttons=[Button.url("Download", url=self.data["direct_link"])],
+                buttons=[
+                    Button.url("📥 Download", url=self.data["direct_link"]),
+                    Button.url("▶️ Watch", url=self.data["link"]),
+                ],
             )
         except Exception:
             pass
 
     async def save_forward_file(self, file, shorturl):
-        forwarded_message = await self.client.forward_messages(
+        forwarded = await self.client.forward_messages(
             PRIVATE_CHAT_ID,
             [file],
             from_peer=self.message.chat.id,
-            with_my_score=True,
             background=True,
         )
-        if forwarded_message[0].id:
-            db.set_key(self.uuid, forwarded_message[0].id)
-            db.set_key(f"mid_{forwarded_message[0].id}", self.uuid)
-            db.set_key(shorturl, forwarded_message[0].id)
+        msg_id = forwarded[0].id
+        if msg_id:
+            db.set_key(self.uuid, msg_id)
+            db.set_key(f"mid_{msg_id}", self.uuid)
+            db.set_key(shorturl, msg_id)
         self.client.remove_event_handler(
             self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
         )
@@ -267,49 +208,39 @@ Size: **{self.data["size"]}**
         except Exception:
             pass
         try:
-            os.unlink(self.download)
+            os.unlink(getattr(self, "download", ""))
         except Exception:
             pass
-        db.set(self.message.sender_id, time.monotonic(), ex=60)
 
     async def send_video(self):
-        self.thumbnail = download_image_to_bytesio(self.data["thumb"], "thumbnail.png")
+        self.thumbnail = download_image_to_bytesio(self.data["thumb"], "thumb.png")
         shorturl = extract_code_from_url(self.url)
         if not shorturl:
-            return await self.edit_message.edit("Seems like your link is invalid.")
-
-        try:
-            if self.edit_message:
-                await self.edit_message.delete()
-        except Exception:
-            pass
-        db.set(self.message.sender_id, time.monotonic(), ex=60)
+            return await self.edit_message.edit("⚠️ Invalid URL.")
         self.edit_message = await self.message.reply(
             self.caption2, file=self.thumbnail, parse_mode="markdown"
         )
         self.task = asyncio.create_task(self.send_media(shorturl))
 
     async def stop(self, event):
-        self.task.cancel()
-        self.client.remove_event_handler(
-            self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
-        )
-        await event.answer("Process stopped.")
+        if self.task:
+            self.task.cancel()
+        await event.answer("🛑 Process stopped.")
+        try:
+            await self.edit_message.delete()
+        except Exception:
+            pass
         try:
             os.unlink(self.data["file_name"])
         except Exception:
             pass
         try:
-            os.unlink(self.download)
-        except Exception:
-            pass
-        try:
-            await self.edit_message.delete()
+            os.unlink(getattr(self, "download", ""))
         except Exception:
             pass
 
     def get_thumbnail(self):
-        return download_image_to_bytesio(self.data["thumb"], "thumbnail.png")
+        return download_image_to_bytesio(self.data["thumb"], "thumb.png")
 
     @staticmethod
     async def forward_file(
@@ -337,50 +268,28 @@ Size: **{self.data["size"]}**
             await message.reply(
                 message=msg.message,
                 file=media,
-                # entity=msg.entities,
-                background=True,
                 reply_to=message.id,
-                force_document=False,
-                buttons=[
-                    [
-                        Button.url(
-                            "Direct Link",
-                            url=f"https://{BOT_USERNAME}.t.me?start={uid}",
-                        ),
-                    ],
-                ],
                 parse_mode="markdown",
-            )
-            db.set(message.sender_id, time.monotonic(), ex=60)
-            db.incr(
-                f"check_{message.sender_id}",
-                1,
+                buttons=[
+                    [Button.url("📥 Download", url=f"https://{BOT_USERNAME}.t.me?start={uid}"),],
+                ],
             )
             return True
         except Exception:
             return False
 
 
-# New helper to get media metadata for preview before sending
 async def send_media(shorturl: str):
-    """
-    Given a shorturl code, fetch metadata for video
-    Returns dict with keys: title, download_link, watch_link, thumbnail_url
-    """
     try:
         data = await get_data(shorturl)
         if not data or not data.get("file_name"):
             return None
-        title = data.get("file_name")
-        download_link = data.get("direct_link")
-        watch_link = data.get("link")
-        thumbnail_url = data.get("thumb")
         return {
-            "title": title,
-            "download_link": download_link,
-            "watch_link": watch_link,
-            "thumbnail_url": thumbnail_url,
-            "data": data,  # keep full data for further use if needed
+            "title": data.get("file_name"),
+            "download_link": data.get("direct_link"),
+            "watch_link": data.get("link"),
+            "thumbnail_url": data.get("thumb"),
+            "data": data,
         }
     except Exception:
         return None
