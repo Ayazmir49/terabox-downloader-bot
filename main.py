@@ -10,7 +10,7 @@ from telethon.tl.custom.button import Button
 
 from config import ADMINS, API_HASH, API_ID, BOT_TOKEN
 from redis_db import db
-from send_media import send_media  # ✅ updated import
+from send_media import send_media, VideoSender  # updated import
 from terabox import get_data
 from tools import extract_code_from_url, get_urls_from_string
 from keep_alive import keep_alive
@@ -77,38 +77,34 @@ async def handle_message(m: Message):
     if not shorturl:
         return await hm.edit("❌ Invalid TeraBox URL provided.")
 
-    # Try new media preview logic
     try:
-        media = send_media(shorturl)
-        if not media:
-            return await hm.edit("⚠️ Could not extract video info. Check the link.")
+        media = await send_media(shorturl)
+        if media:
+            title = media.get("title", "📹 Video")
+            thumbnail_url = media.get("thumbnail_url")
+            download_url = media.get("download_link")
+            watch_url = media.get("watch_link")
 
-        title = media.get("title", "📹 Video")
-        thumbnail_url = media.get("thumbnail_url")
-        download_url = media.get("download_link")
-        watch_url = media.get("watch_link")
+            buttons = [
+                [Button.url("▶️ Watch Video", watch_url)],
+                [Button.url("⬇️ Download Video", download_url)],
+            ]
 
-        buttons = [
-            [Button.url("▶️ Watch Video", watch_url)],
-            [Button.url("⬇️ Download Video", download_url)],
-        ]
-
-        await bot.send_file(
-            m.chat_id,
-            file=thumbnail_url,
-            caption=f"**{title}**\n\nSelect an option below 👇",
-            buttons=buttons,
-            parse_mode="md"
-        )
-
-        return await hm.delete()
+            await bot.send_file(
+                m.chat_id,
+                file=thumbnail_url,
+                caption=f"**{title}**\n\nSelect an option below 👇",
+                buttons=buttons,
+                parse_mode="md"
+            )
+            return await hm.delete()
 
     except Exception as e:
         log.warning(f"[Media Preview Fallback] {e}")
 
-    # Fallback to original logic
+    # Fallback to legacy sender
     try:
-        data = get_data(url)
+        data = await get_data(url)
     except Exception as e:
         log.error(f"API call failed: {e}")
         return await hm.edit("⚠️ Error accessing TeraBox API. Please try again later.")
@@ -125,8 +121,7 @@ async def handle_message(m: Message):
             parse_mode="markdown"
         )
 
-    # Send the video via old method
-    from send_media import VideoSender
+    # Send the video
     sender = VideoSender(client=bot, data=data, message=m, edit_message=hm, url=url)
     asyncio.create_task(sender.send_video())
 
