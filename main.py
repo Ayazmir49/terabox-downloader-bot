@@ -6,22 +6,23 @@ from threading import Thread
 import humanreadable as hr
 from telethon import TelegramClient, events
 from telethon.tl.custom.message import Message
+from telethon.tl.custom.button import Button
 
-from config import ADMINS, API_HASH, API_ID, BOT_TOKEN  # Add BOT_TOKEN import
+from config import ADMINS, API_HASH, API_ID, BOT_TOKEN
 from redis_db import db
 from send_media import VideoSender
 from terabox import get_data
 from tools import extract_code_from_url, get_urls_from_string
 from keep_alive import keep_alive
 
-# Start web server for uptime (Render/Vercel/etc.)
+# Start web server for uptime
 keep_alive()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("TeraBot")
 
-# ✅ Initialize Telegram bot using BOT_TOKEN (no session file needed)
+# Initialize Telegram bot
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 
@@ -39,7 +40,13 @@ async def start_handler(event):
         "- Built on modern, user-friendly design with Firebase backend\n\n"
         "Try me out by sharing your Terabox link!"
     )
-    await event.reply(welcome_message)
+
+    buttons = [
+        [Button.url("📢 Channel", "https://t.me/+LsECfdEyaVU4OGY8"),
+         Button.url("💬 Group", "https://t.me/+EtHQEItJyzE4YzU0")]
+    ]
+
+    await event.reply(welcome_message, buttons=buttons, parse_mode="md")
 
 
 @bot.on(
@@ -70,7 +77,7 @@ async def handle_message(m: Message):
     if not shorturl:
         return await hm.edit("❌ Invalid TeraBox URL provided.")
 
-    # Cache hit: reuse existing Telegram file
+    # Cache hit
     fileid = db.get(shorturl)
     if fileid:
         uid = db.get(f"mid_{fileid}")
@@ -88,11 +95,11 @@ async def handle_message(m: Message):
     if not data:
         return await hm.edit("⚠️ Could not fetch the file. Invalid or expired link?")
 
-    db.set(str(m.sender_id), time.monotonic(), ex=60)  # Set rate-limit
+    db.set(str(m.sender_id), time.monotonic(), ex=60)
 
-    if int(data["sizebytes"]) > 524_288_000 and m.sender_id not in ADMINS:
+    if int(data["sizebytes"]) > 1_073_741_824 and m.sender_id not in ADMINS:
         return await hm.edit(
-            f"❌ File too large. Limit is 500MB.\n"
+            f"❌ File too large. Limit is 1GB.\n"
             f"File size: {data['size']}\n\nTry direct link:\n{data.get('direct_link') or data.get('link', '')}",
             parse_mode="markdown"
         )
@@ -109,8 +116,6 @@ def start_bot_and_flask():
         app.run(host="0.0.0.0", port=8080)
 
     Thread(target=run_flask).start()
-
-    # ✅ No need to connect manually; Telethon handles bot start
     bot.run_until_disconnected()
 
 
