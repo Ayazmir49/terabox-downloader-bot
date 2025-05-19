@@ -17,9 +17,10 @@ from keep_alive import keep_alive  # Keeps bot alive on hosting
 # Keep bot alive on Render/Vercel/etc.
 keep_alive()
 
-# Load session from 'main.session' file
+# Load session from 'main.session' file (must be uploaded to your server)
 bot = TelegramClient("main", API_ID, API_HASH)
 log = logging.getLogger(__name__)
+
 
 @bot.on(
     events.NewMessage(
@@ -30,6 +31,7 @@ log = logging.getLogger(__name__)
 )
 async def get_message(m: Message):
     asyncio.create_task(handle_message(m))
+
 
 async def handle_message(m: Message):
     url = get_urls_from_string(m.text)
@@ -85,10 +87,9 @@ async def handle_message(m: Message):
     sender = VideoSender(client=bot, data=data, message=m, edit_message=hm, url=url)
     asyncio.create_task(sender.send_video())
 
+
 # Start both Flask server and Telegram bot
 def start_bot_and_flask():
-    loop = asyncio.get_event_loop()
-
     def run_flask():
         from keep_alive import app
         app.run(host='0.0.0.0', port=8080)
@@ -96,9 +97,14 @@ def start_bot_and_flask():
     flask_thread = Thread(target=run_flask)
     flask_thread.start()
 
-    # Use existing session — no bot_token login
-    bot.start()
+    # Connect using .session file only (no BOT_TOKEN)
+    bot.connect()
+    if not bot.is_user_authorized():
+        print("❌ Session not authorized. Please generate and upload 'main.session'.")
+        return
+
     bot.run_until_disconnected()
+
 
 if __name__ == "__main__":
     start_bot_and_flask()
