@@ -62,8 +62,9 @@ def get_data(url: str):
 
         data = response.json()
 
-        # Debug: print raw API response if needed
-        # print("API response:", data)
+        # Handle case where API returns a list with a dict inside
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            data = data[0]
 
         if not data or "file_name" not in data:
             print(f"⚠️ Unexpected API response: {data}")
