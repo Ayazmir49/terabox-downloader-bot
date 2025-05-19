@@ -12,14 +12,17 @@ from redis_db import db
 from send_media import VideoSender
 from terabox import get_data
 from tools import extract_code_from_url, get_urls_from_string
-from keep_alive import keep_alive  # Keeps bot alive on hosting
+from keep_alive import keep_alive
 
-# Keep bot alive on Render/Vercel/etc.
+# Start web server for uptime (Render/Vercel/etc.)
 keep_alive()
 
-# Load session from 'main.session' file (must be uploaded to your server)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("TeraBot")
+
+# Initialize Telegram Client
 bot = TelegramClient("main", API_ID, API_HASH)
-log = logging.getLogger(__name__)
 
 
 @bot.on(
@@ -36,71 +39,64 @@ async def get_message(m: Message):
 async def handle_message(m: Message):
     url = get_urls_from_string(m.text)
     if not url:
-        return await m.reply("❌ Please enter a valid URL.")
+        return await m.reply("❌ Please enter a valid TeraBox URL.")
 
     hm = await m.reply("📥 Fetching media, please wait...")
 
-    # Anti-spam check
-    is_spam = db.get(str(m.sender_id))
-    if is_spam and m.sender_id not in ADMINS:
+    # Anti-spam: 60s per user
+    if (spam := db.get(str(m.sender_id))) and m.sender_id not in ADMINS:
         ttl = db.ttl(str(m.sender_id))
-        t = hr.Time(str(ttl), default_unit=hr.Time.Unit.SECOND)
-        return await hm.edit(
-            f"⏳ You're spamming. Please wait {t.to_humanreadable()} and try again.",
-            parse_mode="markdown",
-        )
+        wait = hr.Time(str(ttl), default_unit=hr.Time.Unit.SECOND)
+        return await hm.edit(f"⏳ You're spamming. Please wait {wait.to_humanreadable()}.", parse_mode="markdown")
 
     shorturl = extract_code_from_url(url)
     if not shorturl:
-        return await hm.edit("❌ Invalid link provided.")
+        return await hm.edit("❌ Invalid TeraBox URL provided.")
 
-    # Check cache
+    # Cache hit: reuse existing Telegram file
     fileid = db.get(shorturl)
     if fileid:
         uid = db.get(f"mid_{fileid}")
         if uid:
-            check = await VideoSender.forward_file(file_id=fileid, message=m, client=bot, edit_message=hm, uid=uid)
-            if check:
+            sent = await VideoSender.forward_file(file_id=fileid, message=m, client=bot, edit_message=hm, uid=uid)
+            if sent:
                 return
 
-    # Fetch media info from API
     try:
         data = get_data(url)
-    except Exception:
-        return await hm.edit("⚠️ API error or broken link.")
+    except Exception as e:
+        log.error(f"API call failed: {e}")
+        return await hm.edit("⚠️ Error accessing TeraBox API. Please try again later.")
 
     if not data:
-        return await hm.edit("⚠️ Could not fetch the file.")
+        return await hm.edit("⚠️ Could not fetch the file. Invalid or expired link?")
 
-    # Rate limit this user (60 seconds)
-    db.set(str(m.sender_id), time.monotonic(), ex=60)
+    db.set(str(m.sender_id), time.monotonic(), ex=60)  # Set rate-limit
 
-    # File size check
     if int(data["sizebytes"]) > 524_288_000 and m.sender_id not in ADMINS:
         return await hm.edit(
-            f"❌ File too large. Only files up to 500MB allowed.\n"
-            f"This file: {data['size']}\n\nTry direct link:\n{data['url']}",
-            parse_mode="markdown",
+            f"❌ File too large. Limit is 500MB.\n"
+            f"File size: {data['size']}\n\nTry direct link:\n{data.get('direct_link') or data.get('link', '')}",
+            parse_mode="markdown"
         )
 
-    # Send media
+    # Send the video
     sender = VideoSender(client=bot, data=data, message=m, edit_message=hm, url=url)
     asyncio.create_task(sender.send_video())
 
 
-# Start both Flask server and Telegram bot
+# Run Flask + Telegram bot in parallel
 def start_bot_and_flask():
     def run_flask():
         from keep_alive import app
-        app.run(host='0.0.0.0', port=8080)
+        app.run(host="0.0.0.0", port=8080)
 
-    flask_thread = Thread(target=run_flask)
-    flask_thread.start()
+    Thread(target=run_flask).start()
 
-    # Connect using .session file only (no BOT_TOKEN)
+    # Connect using .session only (no bot token)
     bot.connect()
     if not bot.is_user_authorized():
-        print("❌ Session not authorized. Please generate and upload 'main.session'.")
+        print("❌ Session not authorized. Upload a valid 'main.session' file.")
         return
 
     bot.run_until_disconnected()
