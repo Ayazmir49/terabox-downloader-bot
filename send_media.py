@@ -7,6 +7,7 @@ from uuid import uuid4
 import telethon
 from telethon import Button, TelegramClient, events, utils
 from telethon.events.newmessage import NewMessage
+from telethon.tl.custom.message import Message 
 from telethon.tl.functions.channels import GetMessagesRequest
 from telethon.tl.types import Document
 from telethon.types import UpdateEditMessage
