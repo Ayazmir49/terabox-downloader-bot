@@ -10,7 +10,7 @@ from telethon.tl.custom.button import Button
 
 from config import ADMINS, API_HASH, API_ID, BOT_TOKEN
 from redis_db import db
-from send_media import send_media, VideoSender  # updated import
+from send_media import send_media, VideoSender
 from terabox import get_data
 from tools import extract_code_from_url, get_urls_from_string
 from keep_alive import keep_alive
@@ -104,7 +104,7 @@ async def handle_message(m: Message):
 
     # Fallback to legacy sender
     try:
-        data = await get_data(url)
+        data = get_data(url)  # ✅ FIXED: Removed 'await' here
     except Exception as e:
         log.error(f"API call failed: {e}")
         return await hm.edit("⚠️ Error accessing TeraBox API. Please try again later.")
