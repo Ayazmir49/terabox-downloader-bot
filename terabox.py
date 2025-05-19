@@ -48,48 +48,34 @@ def extract_surl_from_url(url: str) -> str | None:
 # Get download info from API
 def get_data(url: str):
     try:
-        parsed_url = urlparse(url)
-        clean_url = url.replace(parsed_url.netloc, "terabox.com")
-
+        api_url = "https://terabox-downloader-direct-download-link-generator2.p.rapidapi.com/url"
         headers = {
-            "X-RapidAPI-Key": "e001039e2emshf6e499c6afe75f3p1723fdjsn1c9cc179bde0",  # Replace with your own key
-            "X-RapidAPI-Host": "terabox-api1.p.rapidapi.com",
+            "x-rapidapi-host": "terabox-downloader-direct-download-link-generator2.p.rapidapi.com",
+            "x-rapidapi-key": "e001039e2emshf6e499c6afe75f3p1723fdjsn1c9cc179bde0",
         }
+        params = {"url": url}
 
-        response = requests.get(
-            "https://terabox-api1.p.rapidapi.com/api/v1/terabox-downloader",
-            headers=headers,
-            params={"url": clean_url},
-            timeout=15
-        )
-
+        response = requests.get(api_url, headers=headers, params=params, timeout=15)
         if response.status_code != 200:
             print(f"❌ API error: {response.status_code} - {response.text}")
             return False
 
-        json_data = response.json()
+        data = response.json()
 
-        # Handle possible error response
-        if isinstance(json_data, dict) and json_data.get("status") == "error":
-            print(f"❌ API error response: {json_data.get('message')}")
-            return False
+        # Debug: print raw API response if needed
+        # print("API response:", data)
 
-        # Determine structure
-        if isinstance(json_data, list) and json_data:
-            result = json_data[0]
-        elif isinstance(json_data, dict) and "file_name" in json_data:
-            result = json_data
-        else:
-            print("⚠️ Unexpected JSON format:", json_data)
+        if not data or "file_name" not in data:
+            print(f"⚠️ Unexpected API response: {data}")
             return False
 
         return {
-            "file_name": result.get("file_name"),
-            "link": result.get("link") or result.get("url"),
-            "direct_link": result.get("direct_link"),
-            "thumb": result.get("thumb"),
-            "size": result.get("size"),
-            "sizebytes": int(result.get("sizebytes", 0)),
+            "file_name": data.get("file_name"),
+            "link": data.get("link"),
+            "direct_link": data.get("direct_link"),
+            "thumb": data.get("thumb"),
+            "size": data.get("size"),
+            "sizebytes": int(data.get("sizebytes", 0)),
         }
 
     except Exception as e:
