@@ -4,10 +4,10 @@ import time
 from threading import Thread
 
 import humanreadable as hr
-from telethon.sync import TelegramClient, events
+from telethon import TelegramClient, events
 from telethon.tl.custom.message import Message
 
-from config import ADMINS, API_HASH, API_ID
+from config import ADMINS, API_HASH, API_ID, BOT_TOKEN  # Add BOT_TOKEN import
 from redis_db import db
 from send_media import VideoSender
 from terabox import get_data
@@ -21,8 +21,8 @@ keep_alive()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("TeraBot")
 
-# Initialize Telegram Client
-bot = TelegramClient("main", API_ID, API_HASH)
+# ✅ Initialize Telegram bot using BOT_TOKEN (no session file needed)
+bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 
 @bot.on(
@@ -93,12 +93,7 @@ def start_bot_and_flask():
 
     Thread(target=run_flask).start()
 
-    # Connect using .session only (no bot token)
-    bot.connect()
-    if not bot.is_user_authorized():
-        print("❌ Session not authorized. Upload a valid 'main.session' file.")
-        return
-
+    # ✅ No need to connect manually; Telethon handles bot start
     bot.run_until_disconnected()
 
 
