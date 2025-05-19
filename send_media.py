@@ -24,6 +24,7 @@ from tools import (
     extract_code_from_url,
     get_formatted_size,
 )
+from terabox import get_data  # added import for metadata extraction
 
 
 class VideoSender:
@@ -131,7 +132,7 @@ Size: **{self.data["size"]}**
             try:
                 if self.edit_message:
                     await self.edit_message.delete()
-            except Exception as e:
+            except Exception:
                 pass
 
         except telethon.errors.rpcerrorlist.WebpageCurlFailedError:
@@ -195,7 +196,7 @@ Size: **{self.data["size"]}**
                             [
                                 Button.url("Channel ", url="https://t.me/+LsECfdEyaVU4OGY8"),
                                 Button.url(
-                                    "Group ", url="https://t.me/+EtHQEItJyzE4YzU0"
+                                    "Group ", url="https://t.me/+EtHQEItJyzE4Z0"
                                 ),
                             ],
                         ],
@@ -208,7 +209,7 @@ Size: **{self.data["size"]}**
                     os.unlink(self.data["file_name"])
                 except Exception:
                     pass
-            except Exception as e:
+            except Exception:
                 self.client.remove_event_handler(
                     self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
                 )
@@ -237,8 +238,7 @@ Size: **{self.data["size"]}**
             await self.edit_message.edit(
                 f"Sorry! Download Failed but you can download it from [here]({self.data['direct_link']}) or [here]({self.data['link']}).",
                 parse_mode="markdown",
-                buttons=[Button.url("Download", data=self.data["direct_link"])],
-                
+                buttons=[Button.url("Download", url=self.data["direct_link"])],
             )
         except Exception:
             pass
@@ -271,9 +271,6 @@ Size: **{self.data["size"]}**
         except Exception:
             pass
         db.set(self.message.sender_id, time.monotonic(), ex=60)
-        # await self.forward_file(
-        #     self.client, forwarded_message[0].id, self.message, self.edit_message
-        # )
 
     async def send_video(self):
         self.thumbnail = download_image_to_bytesio(self.data["thumb"], "thumbnail.png")
@@ -284,7 +281,7 @@ Size: **{self.data["size"]}**
         try:
             if self.edit_message:
                 await self.edit_message.delete()
-        except Exception as e:
+        except Exception:
             pass
         db.set(self.message.sender_id, time.monotonic(), ex=60)
         self.edit_message = await self.message.reply(
@@ -351,10 +348,6 @@ Size: **{self.data["size"]}**
                             url=f"https://{BOT_USERNAME}.t.me?start={uid}",
                         ),
                     ],
-                    # [
-                    #     Button.url("Channel ", url="https://t.me/+LsECfdEyaVU4OGY8"),
-                    #     Button.url("Group ", url="https://t.me/+EtHQEItJyzE4YzU0"),
-                    # ],
                 ],
                 parse_mode="markdown",
             )
@@ -366,3 +359,28 @@ Size: **{self.data["size"]}**
             return True
         except Exception:
             return False
+
+
+# New helper to get media metadata for preview before sending
+async def send_media(shorturl: str):
+    """
+    Given a shorturl code, fetch metadata for video
+    Returns dict with keys: title, download_link, watch_link, thumbnail_url
+    """
+    try:
+        data = await get_data(shorturl)
+        if not data or not data.get("file_name"):
+            return None
+        title = data.get("file_name")
+        download_link = data.get("direct_link")
+        watch_link = data.get("link")
+        thumbnail_url = data.get("thumb")
+        return {
+            "title": title,
+            "download_link": download_link,
+            "watch_link": watch_link,
+            "thumbnail_url": thumbnail_url,
+            "data": data,  # keep full data for further use if needed
+        }
+    except Exception:
+        return None
