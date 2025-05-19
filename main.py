@@ -25,6 +25,23 @@ log = logging.getLogger("TeraBot")
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 
+@bot.on(events.NewMessage(pattern='/start'))
+async def start_handler(event):
+    welcome_message = (
+        "Hello! 👋\n"
+        "I’m your Teracinee Video Downloader Bot — here to quickly fetch download links from Terabox for you.\n\n"
+        "Simply send me a Terabox video link, and I’ll provide the direct download so you can enjoy your videos hassle-free.\n\n"
+        "🚀 Fast, free, and accessible to everyone!\n\n"
+        "Stay tuned — the Teracinee Android app is coming soon, featuring:\n"
+        "- Video streaming & downloading\n"
+        "- Rewarded ads for free users\n"
+        "- Premium plans with no ads & unlimited downloads\n"
+        "- Built on modern, user-friendly design with Firebase backend\n\n"
+        "Try me out by sharing your Terabox link!"
+    )
+    await event.reply(welcome_message)
+
+
 @bot.on(
     events.NewMessage(
         incoming=True,
