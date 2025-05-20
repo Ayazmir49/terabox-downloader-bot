@@ -82,12 +82,12 @@ async def handle_message(m: Message):
         if media:
             title = media.get("title", "📹 Video")
             thumbnail_url = media.get("thumbnail_url")
-            download_url = media.get("download_link")
-            watch_url = media.get("watch_link")
+            app_download_url = f"https://teracinee.app/download?url={url}"
+            app_watch_url = f"https://teracinee.app/watch?url={url}"
 
             buttons = [
-                [Button.url("▶️ Watch Video", watch_url)],
-                [Button.url("⬇️ Download Video", download_url)],
+                [Button.url("▶️ Watch Video", app_watch_url)],
+                [Button.url("⬇️ Download Video", app_download_url)],
             ]
 
             await bot.send_file(
