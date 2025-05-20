@@ -104,7 +104,7 @@ async def handle_message(m: Message):
 
     # Fallback to legacy sender
     try:
-        data = get_data(url)  # ✅ FIXED: Removed 'await' here
+        data = get_data(url)  # Removed 'await' as get_data may not be async
     except Exception as e:
         log.error(f"API call failed: {e}")
         return await hm.edit("⚠️ Error accessing TeraBox API. Please try again later.")
@@ -114,9 +114,10 @@ async def handle_message(m: Message):
 
     db.set(str(m.sender_id), time.monotonic(), ex=60)
 
-    if int(data["sizebytes"]) > 1_073_741_824 and m.sender_id not in ADMINS:
+    # ✅ Increased limit from 1GB to 10GB for regular users
+    if int(data["sizebytes"]) > 10 * 1024 * 1024 * 1024 and m.sender_id not in ADMINS:
         return await hm.edit(
-            f"❌ File too large. Limit is 1GB.\n"
+            f"❌ File too large. Limit is 10GB.\n"
             f"File size: {data['size']}\n\nTry direct link:\n{data.get('direct_link') or data.get('link', '')}",
             parse_mode="markdown"
         )
