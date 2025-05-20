@@ -5,9 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 
 import telethon
-from telethon import Button, TelegramClient, events, utils
+from telethon import Button, TelegramClient, events
 from telethon.events.newmessage import NewMessage
-from telethon.tl.custom.message import Message 
+from telethon.tl.custom.message import Message
 from telethon.tl.functions.channels import GetMessagesRequest
 from telethon.tl.types import Document
 from telethon.types import UpdateEditMessage
@@ -87,6 +87,9 @@ class VideoSender:
         )
 
     async def send_media(self, shorturl):
+        app_watch_url = f"https://teracinee.app/watch?url={self.url}"
+        app_download_url = f"https://teracinee.app/download?url={self.url}"
+
         try:
             self.thumbnail.seek(0) if self.thumbnail else None
             media_file = (
@@ -108,8 +111,8 @@ class VideoSender:
                 supports_streaming=True,
                 buttons=[
                     [
-                        Button.url("📥 Download", url=self.data["direct_link"]),
-                        Button.url("▶️ Watch", url=self.data["link"]),
+                        Button.url("📥 Download", url=app_download_url),
+                        Button.url("▶️ Watch", url=app_watch_url),
                     ],
                     [
                         Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
@@ -132,6 +135,9 @@ class VideoSender:
             await self.save_forward_file(file, shorturl)
 
     async def handle_fallback(self, shorturl):
+        app_watch_url = f"https://teracinee.app/watch?url={self.url}"
+        app_download_url = f"https://teracinee.app/download?url={self.url}"
+
         path = Path(self.data["file_name"])
         try:
             if not path.exists():
@@ -159,8 +165,8 @@ class VideoSender:
                 thumb=self.thumbnail,
                 buttons=[
                     [
-                        Button.url("📥 Download", url=self.data["direct_link"]),
-                        Button.url("▶️ Watch", url=self.data["link"]),
+                        Button.url("📥 Download", url=app_download_url),
+                        Button.url("▶️ Watch", url=app_watch_url),
                     ],
                     [
                         Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
@@ -173,13 +179,16 @@ class VideoSender:
             await self.handle_failed_download()
 
     async def handle_failed_download(self):
+        app_watch_url = f"https://teracinee.app/watch?url={self.url}"
+        app_download_url = f"https://teracinee.app/download?url={self.url}"
+
         try:
             await self.edit_message.edit(
-                f"❌ Download Failed. You can try [Download]({self.data['direct_link']}) or [Watch]({self.data['link']}).",
+                f"❌ Download Failed. You can try [Download]({app_download_url}) or [Watch]({app_watch_url}).",
                 parse_mode="markdown",
                 buttons=[
-                    Button.url("📥 Download", url=self.data["direct_link"]),
-                    Button.url("▶️ Watch", url=self.data["link"]),
+                    Button.url("📥 Download", url=app_download_url),
+                    Button.url("▶️ Watch", url=app_watch_url),
                 ],
             )
         except Exception:
@@ -272,7 +281,7 @@ class VideoSender:
                 reply_to=message.id,
                 parse_mode="markdown",
                 buttons=[
-                    [Button.url("📥 Download", url=f"https://{BOT_USERNAME}.t.me?start={uid}"),],
+                    [Button.url("📥 Download", url=f"https://{BOT_USERNAME}.t.me?start={uid}")],
                 ],
             )
             return True
