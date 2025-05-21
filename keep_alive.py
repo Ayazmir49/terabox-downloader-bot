@@ -1,6 +1,7 @@
 # keep_alive.py
-from flask import Flask
+from flask import Flask, send_from_directory
 from threading import Thread
+import os
 
 app = Flask('')
 
@@ -8,9 +9,16 @@ app = Flask('')
 def home():
     return "✅ Bot is alive!"
 
+# ✅ Serve Android App Links file from .well-known
+@app.route('/.well-known/assetlinks.json')
+def serve_assetlinks():
+    return send_from_directory(
+        os.path.join(os.getcwd(), '.well-known'),
+        'assetlinks.json',
+        mimetype='application/json'
+    )
+
 def run_flask():
-    # Uses Render's provided port or defaults to 8080 for local dev
-    import os
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
