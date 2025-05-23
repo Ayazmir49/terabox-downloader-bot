@@ -25,39 +25,39 @@ from tools import (
 )
 from terabox import get_data
 
-# 🔁 Constants
-BASE_URL = "https://teracinee.com"
-CHANNEL_URL = "https://t.me/TeracineeChannel"
-GROUP_URL = "https://t.me/+EtHQEItJyzE4YzU0"
-
 
 class VideoSender:
 
-    def __init__(self, client: TelegramClient, message: NewMessage.Event,
-                 edit_message: UpdateEditMessage, url: str, data):
+    def __init__(
+        self,
+        client: TelegramClient,
+        message: NewMessage.Event,
+        edit_message: UpdateEditMessage,
+        url: str,
+        data,
+    ):
         self.client = client
-        self.message = message
-        self.edit_message = edit_message
-        self.url = url
         self.data = data
+        self.url = url
+        self.edit_message = edit_message
+        self.message = message
         self.uuid = str(uuid4())
-        self.task = None
+        self.stop_sending = False
         self.thumbnail = self.get_thumbnail()
         self.can_send = CanSend()
         self.start_time = time.time()
+        self.task = None
         self.client.add_event_handler(
             self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
         )
-
         self.caption = f"""
-🎬 **File Name:** `{self.data['file_name']}`
+🎬 **File Name:** {self.data['file_name']}
 📦 **Size:** **{self.data['size']}**
 
 @{BOT_USERNAME}
         """
-
         self.caption2 = f"""
-📥 **Downloading:** `{self.data['file_name']}`
+📥 **Downloading:** {self.data['file_name']}
 📦 **Size:** **{self.data['size']}**
 
 @{BOT_USERNAME}
@@ -73,10 +73,10 @@ class VideoSender:
         remaining = (total - current) / speed if speed else 0
 
         msg = f"""
-🚀 {state} `{self.data['file_name']}`
+🚀 {state} {self.data['file_name']}
 [{bar}] {percent:.2%}
 ⚡️ Speed: **{get_formatted_size(speed)}/s**
-⏳ Time Remaining: `{convert_seconds(remaining)}`
+⏳ Time Remaining: {convert_seconds(remaining)}
 📦 Size: **{get_formatted_size(current)}** / **{get_formatted_size(total)}**
         """
 
@@ -87,13 +87,11 @@ class VideoSender:
         )
 
     async def send_media(self, shorturl):
-        app_watch_url = f"{BASE_URL}/watch?url={self.url}"
-        app_download_url = f"{BASE_URL}/download?url={self.url}"
+        app_watch_url = f"https://teracinee.app/watch?url={self.url}"
+        app_download_url = f"https://teracinee.app/download?url={self.url}"
 
         try:
-            if self.thumbnail:
-                self.thumbnail.seek(0)
-
+            self.thumbnail.seek(0) if self.thumbnail else None
             media_file = (
                 await self.client._file_to_media(
                     self.data["direct_link"],
@@ -117,8 +115,8 @@ class VideoSender:
                         Button.url("▶️ Watch", url=app_watch_url),
                     ],
                     [
-                        Button.url("📢 Channel", url=CHANNEL_URL),
-                        Button.url("💬 Group", url=GROUP_URL),
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
                     ],
                 ],
             )
@@ -131,32 +129,32 @@ class VideoSender:
 
         except telethon.errors.rpcerrorlist.WebpageCurlFailedError:
             await self.handle_fallback(shorturl)
-        except Exception as e:
-            print(f"[ERROR] send_media failed: {e}")
+        except Exception:
             await self.handle_failed_download()
         else:
             await self.save_forward_file(file, shorturl)
 
     async def handle_fallback(self, shorturl):
-        app_watch_url = f"{BASE_URL}/watch?url={self.url}"
-        app_download_url = f"{BASE_URL}/download?url={self.url}"
+        app_watch_url = f"https://teracinee.app/watch?url={self.url}"
+        app_download_url = f"https://teracinee.app/download?url={self.url}"
 
         path = Path(self.data["file_name"])
         try:
-            download = path if path.exists() else await download_file(
-                self.data["direct_link"], self.data["file_name"], self.progress_bar
-            )
+            if not path.exists():
+                download = await download_file(
+                    self.data["direct_link"], self.data["file_name"], self.progress_bar
+                )
+            else:
+                download = path
 
             if not download or not Path(download).exists():
                 raise FileNotFoundError("Downloaded file not found")
 
             self.download = Path(download)
-
             with open(self.download, "rb") as out:
                 uploaded = await upload_file(
                     self.client, out, self.progress_bar, self.data["file_name"]
                 )
-
             file = await self.client.send_file(
                 self.message.chat.id,
                 file=uploaded,
@@ -171,19 +169,18 @@ class VideoSender:
                         Button.url("▶️ Watch", url=app_watch_url),
                     ],
                     [
-                        Button.url("📢 Channel", url=CHANNEL_URL),
-                        Button.url("💬 Group", url=GROUP_URL),
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
                     ],
                 ],
             )
             await self.save_forward_file(file, shorturl)
-        except Exception as e:
-            print(f"[ERROR] Fallback upload failed: {e}")
+        except Exception:
             await self.handle_failed_download()
 
     async def handle_failed_download(self):
-        app_watch_url = f"{BASE_URL}/watch?url={self.url}"
-        app_download_url = f"{BASE_URL}/download?url={self.url}"
+        app_watch_url = f"https://teracinee.com/watch?url={self.url}"
+        app_download_url = f"https://teracinee.com/download?url={self.url}"
 
         try:
             await self.edit_message.edit(
@@ -216,11 +213,14 @@ class VideoSender:
             await self.edit_message.delete()
         except Exception:
             pass
-        for file_path in [self.data["file_name"], getattr(self, "download", "")]:
-            try:
-                os.unlink(file_path)
-            except Exception:
-                pass
+        try:
+            os.unlink(self.data["file_name"])
+        except Exception:
+            pass
+        try:
+            os.unlink(getattr(self, "download", ""))
+        except Exception:
+            pass
 
     async def send_video(self):
         self.thumbnail = download_image_to_bytesio(self.data["thumb"], "thumb.png")
@@ -240,32 +240,40 @@ class VideoSender:
             await self.edit_message.delete()
         except Exception:
             pass
-        for file_path in [self.data["file_name"], getattr(self, "download", "")]:
-            try:
-                os.unlink(file_path)
-            except Exception:
-                pass
+        try:
+            os.unlink(self.data["file_name"])
+        except Exception:
+            pass
+        try:
+            os.unlink(getattr(self, "download", ""))
+        except Exception:
+            pass
 
     def get_thumbnail(self):
         return download_image_to_bytesio(self.data["thumb"], "thumb.png")
 
     @staticmethod
-    async def forward_file(client: TelegramClient, file_id: int, message: Message,
-                           edit_message: UpdateEditMessage = None, uid: str = None):
+    async def forward_file(
+        client: TelegramClient,
+        file_id: int,
+        message: Message,
+        edit_message: UpdateEditMessage = None,
+        uid: str = None,
+    ):
         if edit_message:
             try:
                 await edit_message.delete()
             except Exception:
                 pass
-
-        result = await client(GetMessagesRequest(channel=PRIVATE_CHAT_ID, id=[int(file_id)]))
+        result = await client(
+            GetMessagesRequest(channel=PRIVATE_CHAT_ID, id=[int(file_id)])
+        )
         msg: Message = result.messages[0] if result and result.messages else None
         if not msg:
             return False
         media: Document = (
             msg.media.document if hasattr(msg, "media") and msg.media.document else None
         )
-
         try:
             await message.reply(
                 message=msg.message,
@@ -293,6 +301,5 @@ async def send_media(shorturl: str):
             "thumbnail_url": data.get("thumb"),
             "data": data,
         }
-    except Exception as e:
-        print(f"[ERROR] get_data failed: {e}")
+    except Exception:
         return None
