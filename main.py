@@ -1,141 +1,305 @@
 import asyncio
-import logging
+import os
 import time
-from threading import Thread
+from pathlib import Path
+from uuid import uuid4
 
-import humanreadable as hr
-from telethon import TelegramClient, events
+import telethon
+from telethon import Button, TelegramClient, events
+from telethon.events.newmessage import NewMessage
 from telethon.tl.custom.message import Message
-from telethon.tl.custom.button import Button
+from telethon.tl.functions.channels import GetMessagesRequest
+from telethon.tl.types import Document
+from telethon.types import UpdateEditMessage
 
-from config import ADMINS, API_HASH, API_ID, BOT_TOKEN
+from cansend import CanSend
+from config import BOT_USERNAME, PRIVATE_CHAT_ID
+from FastTelethon import upload_file
 from redis_db import db
-from send_media import send_media, VideoSender
-from terabox import get_data
-from tools import extract_code_from_url, get_urls_from_string
-from keep_alive import keep_alive
-
-# Start web server for uptime
-keep_alive()
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("TeraBot")
-
-# Initialize Telegram bot
-bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-
-
-@bot.on(events.NewMessage(pattern='/start'))
-async def start_handler(event):
-    welcome_message = (
-        "Hello! 👋\n"
-        "I’m your Teracinee Video Downloader Bot — here to quickly fetch download links from Terabox for you.\n\n"
-        "Simply send me a Terabox video link, and I’ll provide the direct download so you can enjoy your videos hassle-free.\n\n"
-        "🚀 Fast, free, and accessible to everyone!\n\n"
-        "Stay tuned — the Teracinee Android app is coming soon, featuring:\n"
-        "- Video streaming & downloading\n"
-        "- Rewarded ads for free users\n"
-        "- Premium plans with no ads & unlimited downloads\n"
-        "- Built on modern, user-friendly design with Firebase backend\n\n"
-        "Try me out by sharing your Terabox link!"
-    )
-
-    buttons = [
-        [Button.url("📢 Channel", "https://t.me/+LsECfdEyaVU4OGY8"),
-         Button.url("💬 Group", "https://t.me/+EtHQEItJyzE4YzU0")]
-    ]
-
-    await event.reply(welcome_message, buttons=buttons, parse_mode="md")
-
-
-@bot.on(
-    events.NewMessage(
-        incoming=True,
-        outgoing=False,
-        func=lambda message: message.text and get_urls_from_string(message.text) and message.is_private,
-    )
+from tools import (
+    convert_seconds,
+    download_file,
+    download_image_to_bytesio,
+    extract_code_from_url,
+    get_formatted_size,
 )
-async def get_message(m: Message):
-    asyncio.create_task(handle_message(m))
+from terabox import get_data
 
 
-async def handle_message(m: Message):
-    url = get_urls_from_string(m.text)
-    if not url:
-        return await m.reply("❌ Please enter a valid TeraBox URL.")
+class VideoSender:
 
-    hm = await m.reply("📥 Fetching media, please wait...")
+    def __init__(
+        self,
+        client: TelegramClient,
+        message: NewMessage.Event,
+        edit_message: UpdateEditMessage,
+        url: str,
+        data,
+    ):
+        self.client = client
+        self.data = data
+        self.url = url
+        self.edit_message = edit_message
+        self.message = message
+        self.uuid = str(uuid4())
+        self.stop_sending = False
+        self.thumbnail = self.get_thumbnail()
+        self.can_send = CanSend()
+        self.start_time = time.time()
+        self.task = None
+        self.client.add_event_handler(
+            self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
+        )
+        self.caption = f"""
+🎬 **File Name:** `{self.data['file_name']}`
+📦 **Size:** **{self.data['size']}**
 
-    # Anti-spam: 60s per user
-    if (spam := db.get(str(m.sender_id))) and m.sender_id not in ADMINS:
-        ttl = db.ttl(str(m.sender_id))
-        wait = hr.Time(str(ttl), default_unit=hr.Time.Unit.SECOND)
-        return await hm.edit(f"⏳ You're spamming. Please wait {wait.to_humanreadable()}.", parse_mode="markdown")
+@{BOT_USERNAME}
+        """
+        self.caption2 = f"""
+📥 **Downloading:** `{self.data['file_name']}`
+📦 **Size:** **{self.data['size']}**
 
-    shorturl = extract_code_from_url(url)
-    if not shorturl:
-        return await hm.edit("❌ Invalid TeraBox URL provided.")
+@{BOT_USERNAME}
+        """
 
-    try:
-        media = await send_media(shorturl)
-        if media:
-            title = media.get("title", "📹 Video")
-            thumbnail_url = media.get("thumbnail_url")
-            app_download_url = f"https://teracinee.com/download?url={url}"
-            app_watch_url = f"https://teracinee.com/watch?url={url}"
+    async def progress_bar(self, current, total, state="Sending"):
+        if not self.can_send.can_send():
+            return
 
-            buttons = [
-                [Button.url("▶️ Watch Video", app_watch_url)],
-                [Button.url("⬇️ Download Video", app_download_url)],
-            ]
+        percent = current / total if total else 0
+        bar = "█" * int(percent * 20) + "░" * (20 - int(percent * 20))
+        speed = current / (time.time() - self.start_time) if self.start_time else 0
+        remaining = (total - current) / speed if speed else 0
 
-            await bot.send_file(
-                m.chat_id,
-                file=thumbnail_url,
-                caption=f"**{title}**\n\nSelect an option below 👇",
-                buttons=buttons,
-                parse_mode="md"
-            )
-            return await hm.delete()
+        msg = f"""
+🚀 {state} `{self.data['file_name']}`
+[{bar}] {percent:.2%}
+⚡️ Speed: **{get_formatted_size(speed)}/s**
+⏳ Time Remaining: `{convert_seconds(remaining)}`
+📦 Size: **{get_formatted_size(current)}** / **{get_formatted_size(total)}**
+        """
 
-    except Exception as e:
-        log.warning(f"[Media Preview Fallback] {e}")
-
-    # Fallback to legacy sender
-    try:
-        data = get_data(url)  # Removed 'await' as get_data may not be async
-    except Exception as e:
-        log.error(f"API call failed: {e}")
-        return await hm.edit("⚠️ Error accessing TeraBox API. Please try again later.")
-
-    if not data:
-        return await hm.edit("⚠️ Could not fetch the file. Invalid or expired link?")
-
-    db.set(str(m.sender_id), time.monotonic(), ex=60)
-
-    # ✅ Increased limit from 1GB to 10GB for regular users
-    if int(data["sizebytes"]) > 10 * 1024 * 1024 * 1024 and m.sender_id not in ADMINS:
-        return await hm.edit(
-            f"❌ File too large. Limit is 10GB.\n"
-            f"File size: {data['size']}\n\nTry direct link:\n{data.get('direct_link') or data.get('link', '')}",
-            parse_mode="markdown"
+        await self.edit_message.edit(
+            msg.strip(),
+            parse_mode="markdown",
+            buttons=[Button.inline("🛑 Stop", data=f"stop{self.uuid}")],
         )
 
-    # Send the video
-    sender = VideoSender(client=bot, data=data, message=m, edit_message=hm, url=url)
-    asyncio.create_task(sender.send_video())
+    async def send_media(self, shorturl):
+        app_watch_url = f"https://teracinee.com/watch?url={self.url}"
+        app_download_url = f"https://teracinee.com/download?url={self.url}"
+
+        try:
+            self.thumbnail.seek(0) if self.thumbnail else None
+            media_file = (
+                await self.client._file_to_media(
+                    self.data["direct_link"],
+                    supports_streaming=True,
+                    progress_callback=self.progress_bar,
+                    thumb=self.thumbnail,
+                )
+            )[1]
+            media_file.spoiler = True
+
+            file = await self.client.send_file(
+                self.message.chat.id,
+                file=media_file,
+                caption=self.caption,
+                reply_to=self.message.id,
+                parse_mode="markdown",
+                supports_streaming=True,
+                buttons=[
+                    [
+                        Button.url("📥 Download", url=app_download_url),
+                        Button.url("▶️ Watch", url=app_watch_url),
+                    ],
+                    [
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
+                    ],
+                ],
+            )
+
+            try:
+                if self.edit_message:
+                    await self.edit_message.delete()
+            except Exception:
+                pass
+
+        except telethon.errors.rpcerrorlist.WebpageCurlFailedError:
+            await self.handle_fallback(shorturl)
+        except Exception:
+            await self.handle_failed_download()
+        else:
+            await self.save_forward_file(file, shorturl)
+
+    async def handle_fallback(self, shorturl):
+        app_watch_url = f"https://teracinee.com/watch?url={self.url}"
+        app_download_url = f"https://teracinee.com/download?url={self.url}"
+
+        path = Path(self.data["file_name"])
+        try:
+            if not path.exists():
+                download = await download_file(
+                    self.data["direct_link"], self.data["file_name"], self.progress_bar
+                )
+            else:
+                download = path
+
+            if not download or not Path(download).exists():
+                raise FileNotFoundError("Downloaded file not found")
+
+            self.download = Path(download)
+            with open(self.download, "rb") as out:
+                uploaded = await upload_file(
+                    self.client, out, self.progress_bar, self.data["file_name"]
+                )
+            file = await self.client.send_file(
+                self.message.chat.id,
+                file=uploaded,
+                caption=self.caption,
+                reply_to=self.message.id,
+                parse_mode="markdown",
+                supports_streaming=True,
+                thumb=self.thumbnail,
+                buttons=[
+                    [
+                        Button.url("📥 Download", url=app_download_url),
+                        Button.url("▶️ Watch", url=app_watch_url),
+                    ],
+                    [
+                        Button.url("📢 Channel", url="https://t.me/TeracineeChannel"),
+                        Button.url("💬 Group", url="https://t.me/+EtHQEItJyzE4YzU0"),
+                    ],
+                ],
+            )
+            await self.save_forward_file(file, shorturl)
+        except Exception:
+            await self.handle_failed_download()
+
+    async def handle_failed_download(self):
+        app_watch_url = f"https://teracinee.com/watch?url={self.url}"
+        app_download_url = f"https://teracinee.com/download?url={self.url}"
+
+        try:
+            await self.edit_message.edit(
+                f"❌ Download Failed. You can try [Download]({app_download_url}) or [Watch]({app_watch_url}).",
+                parse_mode="markdown",
+                buttons=[
+                    Button.url("📥 Download", url=app_download_url),
+                    Button.url("▶️ Watch", url=app_watch_url),
+                ],
+            )
+        except Exception:
+            pass
+
+    async def save_forward_file(self, file, shorturl):
+        forwarded = await self.client.forward_messages(
+            PRIVATE_CHAT_ID,
+            [file],
+            from_peer=self.message.chat.id,
+            background=True,
+        )
+        msg_id = forwarded[0].id
+        if msg_id:
+            db.set_key(self.uuid, msg_id)
+            db.set_key(f"mid_{msg_id}", self.uuid)
+            db.set_key(shorturl, msg_id)
+        self.client.remove_event_handler(
+            self.stop, events.CallbackQuery(pattern=f"^stop{self.uuid}")
+        )
+        try:
+            await self.edit_message.delete()
+        except Exception:
+            pass
+        try:
+            os.unlink(self.data["file_name"])
+        except Exception:
+            pass
+        try:
+            os.unlink(getattr(self, "download", ""))
+        except Exception:
+            pass
+
+    async def send_video(self):
+        self.thumbnail = download_image_to_bytesio(self.data["thumb"], "thumb.png")
+        shorturl = extract_code_from_url(self.url)
+        if not shorturl:
+            return await self.edit_message.edit("⚠️ Invalid URL.")
+        self.edit_message = await self.message.reply(
+            self.caption2, file=self.thumbnail, parse_mode="markdown"
+        )
+        self.task = asyncio.create_task(self.send_media(shorturl))
+
+    async def stop(self, event):
+        if self.task:
+            self.task.cancel()
+        await event.answer("🛑 Process stopped.")
+        try:
+            await self.edit_message.delete()
+        except Exception:
+            pass
+        try:
+            os.unlink(self.data["file_name"])
+        except Exception:
+            pass
+        try:
+            os.unlink(getattr(self, "download", ""))
+        except Exception:
+            pass
+
+    def get_thumbnail(self):
+        return download_image_to_bytesio(self.data["thumb"], "thumb.png")
+
+    @staticmethod
+    async def forward_file(
+        client: TelegramClient,
+        file_id: int,
+        message: Message,
+        edit_message: UpdateEditMessage = None,
+        uid: str = None,
+    ):
+        if edit_message:
+            try:
+                await edit_message.delete()
+            except Exception:
+                pass
+        result = await client(
+            GetMessagesRequest(channel=PRIVATE_CHAT_ID, id=[int(file_id)])
+        )
+        msg: Message = result.messages[0] if result and result.messages else None
+        if not msg:
+            return False
+        media: Document = (
+            msg.media.document if hasattr(msg, "media") and msg.media.document else None
+        )
+        try:
+            await message.reply(
+                message=msg.message,
+                file=media,
+                reply_to=message.id,
+                parse_mode="markdown",
+                buttons=[
+                    [Button.url("📥 Download", url=f"https://{BOT_USERNAME}.t.me?start={uid}")],
+                ],
+            )
+            return True
+        except Exception:
+            return False
 
 
-# Run Flask + Telegram bot in parallel
-def start_bot_and_flask():
-    def run_flask():
-        from keep_alive import app
-        app.run(host="0.0.0.0", port=8080)
-
-    Thread(target=run_flask).start()
-    bot.run_until_disconnected()
-
-
-if __name__ == "__main__":
-    start_bot_and_flask()
+async def send_media(shorturl: str):
+    try:
+        data = await get_data(shorturl)
+        if not data or not data.get("file_name"):
+            return None
+        return {
+            "title": data.get("file_name"),
+            "download_link": data.get("direct_link"),
+            "watch_link": data.get("link"),
+            "thumbnail_url": data.get("thumb"),
+            "data": data,
+        }
+    except Exception:
+        return None
