@@ -24,18 +24,12 @@ from tools import (
     get_formatted_size,
 )
 from terabox import get_data
+from keep_alive import keep_alive  # ✅ Import keep_alive
 
 
 class VideoSender:
-
-    def __init__(
-        self,
-        client: TelegramClient,
-        message: NewMessage.Event,
-        edit_message: UpdateEditMessage,
-        url: str,
-        data,
-    ):
+    def __init__(self, client: TelegramClient, message: NewMessage.Event,
+                 edit_message: UpdateEditMessage, url: str, data):
         self.client = client
         self.data = data
         self.url = url
@@ -253,27 +247,18 @@ class VideoSender:
         return download_image_to_bytesio(self.data["thumb"], "thumb.png")
 
     @staticmethod
-    async def forward_file(
-        client: TelegramClient,
-        file_id: int,
-        message: Message,
-        edit_message: UpdateEditMessage = None,
-        uid: str = None,
-    ):
+    async def forward_file(client: TelegramClient, file_id: int, message: Message,
+                           edit_message: UpdateEditMessage = None, uid: str = None):
         if edit_message:
             try:
                 await edit_message.delete()
             except Exception:
                 pass
-        result = await client(
-            GetMessagesRequest(channel=PRIVATE_CHAT_ID, id=[int(file_id)])
-        )
+        result = await client(GetMessagesRequest(channel=PRIVATE_CHAT_ID, id=[int(file_id)]))
         msg: Message = result.messages[0] if result and result.messages else None
         if not msg:
             return False
-        media: Document = (
-            msg.media.document if hasattr(msg, "media") and msg.media.document else None
-        )
+        media: Document = msg.media.document if hasattr(msg, "media") and msg.media.document else None
         try:
             await message.reply(
                 message=msg.message,
@@ -303,3 +288,14 @@ async def send_media(shorturl: str):
         }
     except Exception:
         return None
+
+
+# ✅ Add bot startup here
+if __name__ == "__main__":
+    keep_alive()  # Start the Flask keep-alive server
+    from config import API_ID, API_HASH, BOT_TOKEN
+
+    client = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+    print("✅ Bot is running!")
+    client.run_until_disconnected()
