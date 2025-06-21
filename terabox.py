@@ -56,7 +56,7 @@ def get_data(url: str) -> Optional[dict]:
     api_url = "https://terabox-downloader-direct-download-link-generator2.p.rapidapi.com/url"
     headers = {
         "x-rapidapi-host": "terabox-downloader-direct-download-link-generator2.p.rapidapi.com",
-        "x-rapidapi-key": "e001039e2emshf6e499c6afe75f3p1723fdjsn1c9cc179bde0",  # ⚠️ Consider storing in env
+        "x-rapidapi-key": "99838153e8msh4acb9042423ebe5p18209ejsn4873d7aa55ab",  # ⚠️ Consider storing in env
     }
     try:
         response = requests.get(api_url, headers=headers, params={"url": url}, timeout=15)
