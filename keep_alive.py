@@ -50,10 +50,15 @@ def handle_watch():
     </html>
     """
 
-# ✅ /download route redirects to app with custom scheme
-@app.route('/download')
+# ✅ /download route supports GET and POST and redirects to app with custom scheme
+@app.route('/download', methods=['GET', 'POST'])
 def handle_download():
-    video_url = request.args.get("url", "")
+    if request.method == 'GET':
+        video_url = request.args.get("url", "")
+    else:  # POST
+        data = request.get_json(silent=True)
+        video_url = data.get("url", "") if data else ""
+
     if not is_valid_url(video_url):
         return "❌ Invalid or missing URL", 400
 
